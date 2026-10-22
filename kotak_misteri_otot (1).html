@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kotak Misteri Otot - Sains Sukan</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- MediaPipe Hands & Camera Utils -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    
+    <!-- Tone.js for Sound Effects -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@700&display=swap');
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Nunito', sans-serif;
+            background-color: #1a202c;
+            color: white;
+            user-select: none;
+        }
+
+        h1, h2, h3, .brand-font {
+            font-family: 'Fredoka One', cursive;
+        }
+
+        /* Video / Canvas Background */
+        #webcam-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 0;
+        }
+        
+        #output_canvas {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1); /* Mirror effect */
+        }
+
+        #video_input {
+            display: none;
+        }
+
+        /* UI Overlay Layer */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 10;
+            pointer-events: none; /* Let pointer events pass through if needed, though we use hand tracking */
+        }
+
+        /* Pointer Cursor (Tracked by Finger) */
+        #finger-cursor {
+            position: absolute;
+            width: 60px;
+            height: 60px;
+            margin-left: -30px;
+            margin-top: -30px;
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 100;
+            display: none;
+            transition: transform 0.1s ease-out;
+        }
+
+        .cursor-center {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 12px;
+            height: 12px;
+            background-color: #ef4444; /* red-500 */
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 0 10px #ef4444, 0 0 20px #ef4444;
+        }
+
+        /* SVG Circular Progress for Dwell */
+        .progress-ring__circle {
+            transition: stroke-dashoffset 0.1s linear;
+            transform: rotate(-90deg);
+            transform-origin: 50% 50%;
+        }
+
+        /* Mystery Boxes */
+        .mystery-box {
+            position: absolute;
+            width: 180px;
+            height: 180px;
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 20px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5), inset 0 0 15px rgba(255,255,255,0.8);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            border: 6px solid #fbbf24;
+            transition: all 0.2s ease;
+            text-align: center;
+            padding: 10px;
+        }
+        
+        .box-icon {
+            font-size: 4rem;
+            filter: drop-shadow(0 4px 6px rgba(0,0,0,0.3));
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .box-text {
+            color: #1e3a8a;
+            font-weight: 900;
+            font-size: 1.1rem;
+            margin-top: 10px;
+            line-height: 1.2;
+            opacity: 0;
+            display: none;
+        }
+
+        .box-label {
+            position: absolute;
+            top: -20px;
+            background: #ef4444;
+            color: white;
+            padding: 2px 15px;
+            border-radius: 10px;
+            font-weight: bold;
+            font-size: 1.2rem;
+            border: 2px solid white;
+        }
+
+        /* Box Positions */
+        #box-0 { top: 5%; left: 5%; }
+        #box-1 { top: 5%; right: 5%; }
+        #box-2 { bottom: 5%; left: 5%; }
+        #box-3 { bottom: 5%; right: 5%; }
+
+        /* Animations */
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            20% { transform: translateX(-10px) rotate(-5deg); }
+            40% { transform: translateX(10px) rotate(5deg); }
+            60% { transform: translateX(-10px) rotate(-5deg); }
+            80% { transform: translateX(10px) rotate(5deg); }
+        }
+        
+        @keyframes popOpen {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.3); }
+            100% { transform: scale(1); }
+        }
+
+        .anim-shake { animation: shake 0.5s ease-in-out infinite; border-color: #3b82f6; box-shadow: 0 0 30px #3b82f6;}
+        .anim-open { animation: popOpen 0.6s ease-out forwards; }
+        
+        .box-opened .box-icon { display: none; }
+        .box-opened .box-text { opacity: 1; display: block; font-size: 1.3rem; }
+        .box-correct { background: #dcfce7 !important; border-color: #22c55e !important; }
+        .box-wrong { background: #fee2e2 !important; border-color: #ef4444 !important; }
+
+        /* Question Banner */
+        #question-container {
+            position: absolute;
+            top: 5%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(30, 58, 138, 0.85);
+            border: 4px solid #60a5fa;
+            border-radius: 20px;
+            padding: 20px 40px;
+            max-width: 50%;
+            text-align: center;
+            box-shadow: 0 15px 30px rgba(0,0,0,0.5);
+            backdrop-filter: blur(5px);
+        }
+
+        /* UI Panels */
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(10px);
+            border: 2px solid rgba(255,255,255,0.1);
+            border-radius: 24px;
+            pointer-events: auto;
+        }
+
+        /* Particles/Confetti Canvas */
+        #fx-canvas {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            z-index: 20;
+        }
+
+        /* Responsive scaling */
+        @media (max-width: 768px) {
+            .mystery-box { width: 130px; height: 130px; }
+            .box-icon { font-size: 2.5rem; }
+            .box-text { font-size: 0.9rem; }
+            #question-container { max-width: 80%; padding: 15px; }
+            #question-container h2 { font-size: 1.2rem; line-height: 1.4; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Webcam Background & Canvas -->
+    <div id="webcam-container">
+        <video id="video_input" autoplay playsinline></video>
+        <canvas id="output_canvas"></canvas>
+    </div>
+
+    <!-- Particle FX -->
+    <canvas id="fx-canvas"></canvas>
+
+    <!-- UI Overlay Layer -->
+    <div id="ui-layer">
+        
+        <!-- Top HUD (Score & Timer) -->
+        <div class="absolute top-4 left-1/2 transform -translate-x-1/2 w-full max-w-4xl flex justify-between px-8 z-10 hidden" id="hud">
+            <div class="bg-blue-900/80 border-2 border-blue-400 rounded-full px-6 py-2 shadow-lg flex items-center gap-3">
+                <span class="text-blue-200 font-bold uppercase tracking-wider text-sm">Markah</span>
+                <span class="text-3xl brand-font text-yellow-400" id="score-display">0</span>
+            </div>
+            <div class="bg-red-900/80 border-2 border-red-400 rounded-full px-6 py-2 shadow-lg flex items-center gap-3">
+                <span class="text-red-200 font-bold uppercase tracking-wider text-sm">Masa (Bonus)</span>
+                <span class="text-3xl brand-font text-white" id="time-display">100</span>
+            </div>
+        </div>
+
+        <!-- Question Banner -->
+        <div id="question-container" class="hidden">
+            <h3 class="text-blue-200 text-sm uppercase tracking-widest mb-1 font-bold">Soalan <span id="q-num">1</span>/5</h3>
+            <h2 id="question-text" class="text-2xl md:text-3xl brand-font text-white">Apakah otot utama yang berada di... ?</h2>
+        </div>
+
+        <!-- Mystery Boxes (4 Corners) -->
+        <div id="boxes-container" class="hidden">
+            <div class="mystery-box" id="box-0">
+                <div class="box-label">A</div>
+                <div class="box-icon">🎁</div>
+                <div class="box-text">Jawapan A</div>
+            </div>
+            <div class="mystery-box" id="box-1">
+                <div class="box-label">B</div>
+                <div class="box-icon">🎁</div>
+                <div class="box-text">Jawapan B</div>
+            </div>
+            <div class="mystery-box" id="box-2">
+                <div class="box-label">C</div>
+                <div class="box-icon">🎁</div>
+                <div class="box-text">Jawapan C</div>
+            </div>
+            <div class="mystery-box" id="box-3">
+                <div class="box-label">D</div>
+                <div class="box-icon">🎁</div>
+                <div class="box-text">Jawapan D</div>
+            </div>
+        </div>
+
+        <!-- Finger Cursor Tracking with Dwell Ring -->
+        <div id="finger-cursor">
+            <svg class="progress-ring" width="60" height="60">
+                <circle class="progress-ring__circle" stroke="#fbbf24" stroke-width="6" fill="transparent" r="26" cx="30" cy="30"/>
+            </svg>
+            <div class="cursor-center"></div>
+        </div>
+
+    </div>
+
+    <!-- Start Screen -->
+    <div id="start-screen" class="absolute inset-0 flex items-center justify-center z-50 p-4">
+        <div class="glass-panel p-8 md:p-12 text-center max-w-2xl w-full shadow-2xl">
+            <div class="text-6xl mb-6">💪🎁</div>
+            <h1 class="text-4xl md:text-5xl text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 to-yellow-500 mb-4 drop-shadow-lg brand-font uppercase">
+                Kotak Misteri Otot
+            </h1>
+            <h2 class="text-xl text-blue-200 mb-8 font-bold">Uji Pengetahuan Sains Sukan Anda (Otot Anggota Atas)</h2>
+            
+            <div class="bg-slate-800/50 rounded-xl p-6 mb-8 text-left border border-slate-600">
+                <h3 class="text-yellow-400 font-bold text-lg mb-3">🎮 Cara Bermain:</h3>
+                <ul class="list-disc pl-5 space-y-2 text-slate-200">
+                    <li>Benarkan akses <strong>Kamera Web (Webcam)</strong> anda.</li>
+                    <li>Gunakan <strong>Jari Telunjuk</strong> anda sebagai cursor (penunjuk).</li>
+                    <li>Baca soalan di atas skrin mengenai otot-otot di bahagian tangan/lengan.</li>
+                    <li>Halakan jari ke atas Kotak Hadiah yang mengandungi jawapan yang betul.</li>
+                    <li><strong>Tahan (Dwell) selama 1 saat</strong> untuk membuka kotak!</li>
+                    <li>Jawab dengan pantas untuk markah bonus masa.</li>
+                </ul>
+            </div>
+
+            <button id="start-btn" class="bg-gradient-to-r from-green-400 to-green-600 hover:from-green-500 hover:to-green-700 text-white font-bold py-4 px-12 rounded-full text-2xl transition transform hover:scale-105 shadow-[0_0_20px_rgba(34,197,94,0.5)] brand-font">
+                MULA MAIN
+            </button>
+            <p id="loading-msg" class="text-yellow-400 font-bold mt-4 hidden">Memuatkan model AI Kamera. Sila tunggu...</p>
+        </div>
+    </div>
+
+    <!-- End Screen -->
+    <div id="end-screen" class="absolute inset-0 flex items-center justify-center z-50 p-4 hidden bg-slate-900/90 backdrop-blur-md">
+        <div class="glass-panel p-8 md:p-12 text-center max-w-xl w-full shadow-2xl">
+            <h1 class="text-5xl text-yellow-400 mb-2 brand-font uppercase">Permainan Tamat!</h1>
+            <p class="text-xl text-slate-300 mb-8 font-bold">Tahniah kerana menyelesaikannya.</p>
+            
+            <div class="bg-slate-800/80 rounded-2xl p-8 mb-8 border border-slate-600 shadow-inner">
+                <h3 class="text-slate-400 font-bold uppercase tracking-widest text-sm mb-2">Markah Anda</h3>
+                <div class="text-7xl brand-font text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.5)] mb-4" id="final-score">
+                    0
+                </div>
+                
+                <div class="border-t border-slate-600 pt-4 mt-4">
+                    <h3 class="text-slate-400 font-bold uppercase tracking-widest text-sm mb-1">Markah Tertinggi</h3>
+                    <div class="text-3xl brand-font text-yellow-400" id="high-score">0</div>
+                </div>
+            </div>
+
+            <button id="restart-btn" class="bg-gradient-to-r from-blue-500 to-blue-700 hover:from-blue-600 hover:to-blue-800 text-white font-bold py-4 px-10 rounded-full text-xl transition transform hover:scale-105 shadow-lg brand-font">
+                MAIN SEMULA
+            </button>
+        </div>
+    </div>
+
+    <script>
+        /** --- Game Data & State --- */
+        const QUIZ_DATA = [
+            {
+                question: "Otot utama yang membengkokkan lengan di sendi siku (fleksi)?",
+                answers: ["Biceps brachii", "Triceps brachii", "Deltoid", "Pectoralis major"],
+                correct: 0
+            },
+            {
+                question: "Otot yang berfungsi meluruskan lengan (ekstensi) di sendi siku?",
+                answers: ["Biceps brachii", "Brachioradialis", "Triceps brachii", "Latissimus dorsi"],
+                correct: 2
+            },
+            {
+                question: "Otot yang membentuk kontur bahu dan membantu mengangkat lengan?",
+                answers: ["Trapezius", "Deltoid", "Flexor carpi ulnaris", "Brachialis"],
+                correct: 1
+            },
+            {
+                question: "Otot di lengan bawah yang berfungsi membengkokkan pergelangan tangan?",
+                answers: ["Extensor digitorum", "Triceps brachii", "Flexor carpi radialis", "Pronator teres"],
+                correct: 2
+            },
+            {
+                question: "Otot yang memanjangkan (meluruskan) jari-jari tangan?",
+                answers: ["Flexor digitorum profundus", "Extensor digitorum", "Biceps brachii", "Supinator"],
+                correct: 1
+            }
+        ];
+
+        let gameState = 'start'; // start, playing, animating, gameover
+        let currentQuestionIndex = 0;
+        let score = 0;
+        let currentQuestionTime = 1000; // max bonus score per question
+        let questionTimerInterval;
+        let highScore = localStorage.getItem('otot_highscore') || 0;
+
+        // Dwell logic
+        let hoveredBoxId = null;
+        let hoverStartTime = 0;
+        const DWELL_TIME_MS = 1000; // 1 second hover to select
+        
+        let shuffledCurrentAnswers = [];
+        let correctBoxId = null;
+
+        /** --- Audio Setup (Tone.js) --- */
+        let synthCorrect, synthWrong, synthHover, synthPop;
+
+        function initAudio() {
+            // Need user interaction to start AudioContext
+            Tone.start();
+            
+            synthCorrect = new Tone.PolySynth(Tone.Synth).toDestination();
+            synthCorrect.set({ volume: -5, oscillator: { type: 'triangle' } });
+            
+            synthWrong = new Tone.Synth().toDestination();
+            synthWrong.set({ volume: -5, oscillator: { type: 'sawtooth' } });
+            
+            synthHover = new Tone.MembraneSynth().toDestination();
+            synthHover.set({ volume: -15 });
+
+            synthPop = new Tone.Synth().toDestination();
+            synthPop.set({ volume: -5, oscillator: { type: 'sine' }, envelope: { attack: 0.01, decay: 0.2, sustain: 0, release: 0.1 } });
+        }
+
+        function playSound(type) {
+            if (Tone.context.state !== 'running') return;
+            const now = Tone.now();
+            switch (type) {
+                case 'correct':
+                    synthCorrect.triggerAttackRelease(["C4", "E4", "G4", "C5"], "8n", now);
+                    break;
+                case 'wrong':
+                    synthWrong.triggerAttackRelease("C2", "8n", now);
+                    break;
+                case 'tick':
+                    synthHover.triggerAttackRelease("C4", "32n", now);
+                    break;
+                case 'pop':
+                    synthPop.triggerAttackRelease("C5", "16n", now);
+                    break;
+            }
+        }
+
+        /** --- UI Elements --- */
+        const cursorEl = document.getElementById('finger-cursor');
+        const progressCircle = document.querySelector('.progress-ring__circle');
+        const radius = progressCircle.r.baseVal.value;
+        const circumference = radius * 2 * Math.PI;
+        progressCircle.style.strokeDasharray = `${circumference} ${circumference}`;
+        progressCircle.style.strokeDashoffset = circumference;
+
+        const boxes = [
+            document.getElementById('box-0'),
+            document.getElementById('box-1'),
+            document.getElementById('box-2'),
+            document.getElementById('box-3')
+        ];
+
+        function setProgress(percent) {
+            const offset = circumference - (percent / 100) * circumference;
+            progressCircle.style.strokeDashoffset = offset;
+        }
+
+        /** --- Game Flow Logic --- */
+        
+        document.getElementById('start-btn').addEventListener('click', async () => {
+            document.getElementById('start-btn').classList.add('hidden');
+            document.getElementById('loading-msg').classList.remove('hidden');
+            
+            initAudio();
+            await initCameraAndMediaPipe();
+            
+            document.getElementById('start-screen').classList.add('hidden');
+            document.getElementById('hud').classList.remove('hidden');
+            document.getElementById('question-container').classList.remove('hidden');
+            document.getElementById('boxes-container').classList.remove('hidden');
+            
+            startGame();
+        });
+
+        document.getElementById('restart-btn').addEventListener('click', () => {
+            document.getElementById('end-screen').classList.add('hidden');
+            startGame();
+        });
+
+        function startGame() {
+            score = 0;
+            currentQuestionIndex = 0;
+            updateScoreUI();
+            loadQuestion();
+            gameState = 'playing';
+        }
+
+        function loadQuestion() {
+            const q = QUIZ_DATA[currentQuestionIndex];
+            document.getElementById('q-num').innerText = currentQuestionIndex + 1;
+            document.getElementById('question-text').innerText = q.question;
+            
+            // Shuffle answers
+            let ansIndices = [0, 1, 2, 3];
+            ansIndices.sort(() => Math.random() - 0.5);
+            
+            shuffledCurrentAnswers = ansIndices.map(i => ({
+                text: q.answers[i],
+                isCorrect: i === q.correct
+            }));
+
+            // Reset Boxes UI
+            boxes.forEach((box, i) => {
+                box.className = 'mystery-box'; // reset classes
+                box.querySelector('.box-icon').innerText = '🎁';
+                box.querySelector('.box-text').innerText = shuffledCurrentAnswers[i].text;
+                
+                if (shuffledCurrentAnswers[i].isCorrect) {
+                    correctBoxId = i;
+                }
+            });
+
+            // Start Question Timer
+            currentQuestionTime = 1000;
+            updateTimeUI();
+            clearInterval(questionTimerInterval);
+            questionTimerInterval = setInterval(() => {
+                if (gameState === 'playing') {
+                    currentQuestionTime -= 10;
+                    if (currentQuestionTime < 100) currentQuestionTime = 100; // minimum 100 pts per correct answer
+                    updateTimeUI();
+                }
+            }, 100);
+        }
+
+        function updateScoreUI() {
+            document.getElementById('score-display').innerText = score;
+        }
+
+        function updateTimeUI() {
+            document.getElementById('time-display').innerText = Math.floor(currentQuestionTime);
+        }
+
+        function handleBoxSelected(boxIndex) {
+            gameState = 'animating';
+            clearInterval(questionTimerInterval);
+            playSound('pop');
+            setProgress(0);
+            hoveredBoxId = null;
+            
+            const selectedBox = boxes[boxIndex];
+            const isCorrect = (boxIndex === correctBoxId);
+            
+            // Animate open
+            selectedBox.classList.add('anim-open', 'box-opened');
+            
+            if (isCorrect) {
+                selectedBox.classList.add('box-correct');
+                selectedBox.querySelector('.box-icon').innerText = '✅';
+                playSound('correct');
+                score += Math.floor(currentQuestionTime);
+                updateScoreUI();
+                createConfetti(selectedBox.getBoundingClientRect());
+            } else {
+                selectedBox.classList.add('box-wrong');
+                selectedBox.querySelector('.box-icon').innerText = '❌';
+                playSound('wrong');
+                
+                // Show correct one as well
+                const cBox = boxes[correctBoxId];
+                cBox.classList.add('box-opened', 'box-correct');
+                cBox.querySelector('.box-icon').innerText = '✅';
+            }
+
+            // Wait then next question
+            setTimeout(() => {
+                currentQuestionIndex++;
+                if (currentQuestionIndex < QUIZ_DATA.length) {
+                    gameState = 'playing';
+                    loadQuestion();
+                } else {
+                    endGame();
+                }
+            }, 2500);
+        }
+
+        function endGame() {
+            gameState = 'gameover';
+            document.getElementById('hud').classList.add('hidden');
+            document.getElementById('question-container').classList.add('hidden');
+            document.getElementById('boxes-container').classList.add('hidden');
+            cursorEl.style.display = 'none';
+
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem('otot_highscore', highScore);
+            }
+            
+            document.getElementById('final-score').innerText = score;
+            document.getElementById('high-score').innerText = highScore;
+            document.getElementById('end-screen').classList.remove('hidden');
+        }
+
+        /** --- MediaPipe & Computer Vision --- */
+        const videoElement = document.getElementById('video_input');
+        const canvasElement = document.getElementById('output_canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        
+        // Handle Resize
+        function resizeCanvas() {
+            canvasElement.width = window.innerWidth;
+            canvasElement.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        let camera;
+        let lastTickTime = 0;
+
+        async function initCameraAndMediaPipe() {
+            const hands = new Hands({
+                locateFile: (file) => {
+                    return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+                }
+            });
+            
+            hands.setOptions({
+                maxNumHands: 1,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.6,
+                minTrackingConfidence: 0.6
+            });
+            
+            hands.onResults(onResults);
+            
+            camera = new Camera(videoElement, {
+                onFrame: async () => {
+                    await hands.send({image: videoElement});
+                },
+                width: 1280,
+                height: 720
+            });
+            
+            await camera.start();
+        }
+
+        function onResults(results) {
+            // Draw background video
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.restore();
+
+            if (gameState !== 'playing' && gameState !== 'animating') return;
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                // Get Index Finger Tip (Landmark 8)
+                const landmarks = results.multiHandLandmarks[0];
+                const indexTip = landmarks[8];
+                
+                // Note: Coordinates are normalized [0,1].
+                // X is flipped because of CSS scaleX(-1) on canvas, so logical mapping:
+                const logicalX = (1 - indexTip.x) * window.innerWidth; 
+                const logicalY = indexTip.y * window.innerHeight;
+
+                // Move custom cursor
+                cursorEl.style.display = 'block';
+                cursorEl.style.transform = `translate(${logicalX}px, ${logicalY}px)`;
+
+                if (gameState === 'playing') {
+                    checkIntersections(logicalX, logicalY);
+                }
+            } else {
+                cursorEl.style.display = 'none';
+                resetDwell();
+            }
+        }
+
+        function checkIntersections(cx, cy) {
+            let foundBox = null;
+            
+            for (let i = 0; i < boxes.length; i++) {
+                const rect = boxes[i].getBoundingClientRect();
+                if (cx >= rect.left && cx <= rect.right && cy >= rect.top && cy <= rect.bottom) {
+                    foundBox = i;
+                    break;
+                }
+            }
+
+            if (foundBox !== null) {
+                if (hoveredBoxId !== foundBox) {
+                    // New box entered
+                    hoveredBoxId = foundBox;
+                    hoverStartTime = performance.now();
+                    boxes.forEach(b => b.classList.remove('anim-shake'));
+                    boxes[hoveredBoxId].classList.add('anim-shake');
+                } else {
+                    // Continuing to hover
+                    const elapsed = performance.now() - hoverStartTime;
+                    const percent = Math.min((elapsed / DWELL_TIME_MS) * 100, 100);
+                    setProgress(percent);
+                    
+                    // Tick sound effect every ~200ms
+                    if (performance.now() - lastTickTime > 200 && percent < 100) {
+                        playSound('tick');
+                        lastTickTime = performance.now();
+                    }
+
+                    if (elapsed >= DWELL_TIME_MS) {
+                        // Boom! Selected!
+                        handleBoxSelected(hoveredBoxId);
+                    }
+                }
+            } else {
+                resetDwell();
+            }
+        }
+
+        function resetDwell() {
+            if (hoveredBoxId !== null) {
+                boxes[hoveredBoxId].classList.remove('anim-shake');
+                hoveredBoxId = null;
+            }
+            setProgress(0);
+        }
+
+        /** --- Visual Effects (Confetti) --- */
+        const fxCanvas = document.getElementById('fx-canvas');
+        const fxCtx = fxCanvas.getContext('2d');
+        let particles = [];
+        
+        function resizeFx() {
+            fxCanvas.width = window.innerWidth;
+            fxCanvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeFx);
+        resizeFx();
+
+        function createConfetti(rect) {
+            const startX = rect.left + rect.width / 2;
+            const startY = rect.top + rect.height / 2;
+            
+            for (let i = 0; i < 50; i++) {
+                particles.push({
+                    x: startX,
+                    y: startY,
+                    vx: (Math.random() - 0.5) * 20,
+                    vy: (Math.random() - 0.5) * 20 - 5,
+                    size: Math.random() * 10 + 5,
+                    color: `hsl(${Math.random() * 360}, 100%, 50%)`,
+                    life: 1
+                });
+            }
+        }
+
+        function animateFx() {
+            fxCtx.clearRect(0, 0, fxCanvas.width, fxCanvas.height);
+            
+            for (let i = particles.length - 1; i >= 0; i--) {
+                let p = particles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.vy += 0.5; // gravity
+                p.life -= 0.02;
+                
+                if (p.life <= 0) {
+                    particles.splice(i, 1);
+                } else {
+                    fxCtx.globalAlpha = p.life;
+                    fxCtx.fillStyle = p.color;
+                    fxCtx.fillRect(p.x, p.y, p.size, p.size);
+                }
+            }
+            fxCtx.globalAlpha = 1;
+            requestAnimationFrame(animateFx);
+        }
+        animateFx();
+
+    </script>
+</body>
+</html>
